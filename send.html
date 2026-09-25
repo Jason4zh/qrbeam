@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="theme-color" content="#0e1015" />
+    <title>qrbeam · 发送端</title>
+    <link rel="stylesheet" href="app/style.css" />
+  </head>
+  <body class="page-send">
+    <div class="topbar">
+      <span class="title">qrbeam<em>发送端</em></span>
+      <span class="pill">屏幕 → 摄像头</span>
+      <div class="spacer"></div>
+      <a class="pill" href="index.html">返回首页</a>
+    </div>
+
+    <div class="banner" id="banner"></div>
+
+    <div class="send-layout">
+      <aside class="side">
+        <div class="field">
+          <label>要传的文件</label>
+          <input type="file" id="file" />
+          <div class="hint">
+            也可以直接把文件拖进右侧区域。文件会全部读进内存，建议不超过几十 MB。
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="grid">布局（两端要选同一个）</label>
+          <select id="grid"></select>
+          <div class="hint">
+            码越多单帧数据量越大，但每个码在屏幕上就越小、手机越难分辨。4 个码是较稳的起点。
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="version">二维码版本</label>
+          <select id="version"></select>
+          <div class="hint">
+            版本越高单个码能装的数据越多，但模块更密。换布局时会自动给出当前屏幕装得下的版本。
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="level">纠错级别</label>
+          <select id="level"></select>
+          <div class="hint">L 容量最大；屏幕反光、距离较远时可以提到 M。</div>
+        </div>
+
+        <div class="field">
+          <label for="fps">刷新率：<b id="fpsOut">10 fps</b></label>
+          <input type="range" id="fps" min="2" max="20" step="1" value="10" />
+          <div class="hint">
+            屏幕换码太快时相机可能拍到残影，10–12 fps 通常最稳；低端手机建议 8 fps。
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="segk">分段大小</label>
+          <select id="segk"></select>
+          <div class="hint">
+            喷泉码按段独立解码。段越小，进度条越早开始动；段越大，整体效率略高。
+          </div>
+        </div>
+
+        <button id="start" class="primary" style="width: 100%" disabled>开始投射</button>
+
+        <div class="stats" id="stats"></div>
+      </aside>
+
+      <main class="stage" id="stage">
+        <canvas id="screen" width="600" height="600"></canvas>
+        <div class="dropzone" id="dropzone">
+          <strong>把文件拖到这里</strong>
+          <div>或者点左侧「选择文件」</div>
+          <button id="pick" class="primary" style="pointer-events: auto; margin-top: 6px">选择文件</button>
+        </div>
+      </main>
+    </div>
+
+    <script src="app/lib/rand.js"></script>
+    <script src="app/lib/base45.js"></script>
+    <script src="app/lib/crc16.js"></script>
+    <script src="app/lib/qrcap.js"></script>
+    <script src="app/lib/fountain.js"></script>
+    <script src="app/lib/wire.js"></script>
+    <script src="app/lib/stream.js"></script>
+    <script src="app/lib/qrcode.js"></script>
+    <script src="app/lib/render.js"></script>
+    <script src="app/sender.js"></script>
+    <script>
+      if ('serviceWorker' in navigator && location.protocol.indexOf('http') === 0) {
+        window.addEventListener('load', function () {
+          navigator.serviceWorker.register('sw.js').catch(function () {});
+        });
+      }
+    </script>
+  </body>
+</html>

@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="theme-color" content="#0e1015" />
+    <title>qrbeam · 用屏幕和摄像头传文件</title>
+    <meta
+      name="description"
+      content="不用网络、不用蓝牙、不用数据线：电脑屏幕快速闪动的二维码，手机摄像头扫下来就是文件。"
+    />
+    <link rel="stylesheet" href="app/style.css" />
+  </head>
+  <body>
+    <div class="home">
+      <div class="brand">
+        <h1>qr<span>beam</span></h1>
+        <p>
+          电脑屏幕高速闪动的一串二维码，被手机摄像头逐帧扫下来，还原成原文件。
+          不经过任何网络、蓝牙或数据线 —— 数据全部走这条肉眼可见的光信道。
+        </p>
+      </div>
+
+      <div class="roles">
+        <a class="role" href="send.html">
+          <div class="icon">🖥️</div>
+          <h2>发送端 · 电脑</h2>
+          <p>选择一个文件，屏幕开始循环投射二维码。把手机对准屏幕即可。</p>
+          <span class="tag">在这里打开</span>
+        </a>
+        <a class="role" href="receive.html">
+          <div class="icon">📱</div>
+          <h2>接收端 · 手机</h2>
+          <p>用手机摄像头对准电脑屏幕，自动识别、自动纠错，完成后保存文件。</p>
+          <span class="tag">需要 HTTPS 才能用摄像头</span>
+        </a>
+      </div>
+
+      <p class="foot">
+        两端选择同一个「布局」即可开始。<br />
+        接收端需要 HTTPS（摄像头权限要求）——把它部署到 GitHub Pages 后，首次打开即会被缓存，之后没有网络也能继续用。<br />
+        传输速率取决于屏幕尺寸、手机摄像头素质与距离，典型在 20–80 KB/s。
+      </p>
+    </div>
+
+    <script>
+      if ('serviceWorker' in navigator && location.protocol.indexOf('http') === 0) {
+        window.addEventListener('load', function () {
+          navigator.serviceWorker.register('sw.js').catch(function () {});
+        });
+      }
+    </script>
+  </body>
+</html>

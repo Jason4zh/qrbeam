@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover"
+    />
+    <meta name="color-scheme" content="dark" />
+    <meta name="theme-color" content="#0e1015" />
+    <title>qrbeam · 接收端</title>
+    <link rel="stylesheet" href="app/style.css" />
+  </head>
+  <body class="page-recv">
+    <div class="recv">
+      <div class="viewport" id="viewport">
+        <video id="cam" playsinline muted autoplay></video>
+        <canvas id="overlay"></canvas>
+        <div class="rotate-hint" id="rotateHint">建议横屏，让二维码铺满画面</div>
+
+        <div class="recv-hud">
+          <div class="recv-line"><span id="statusLine">等待开始</span></div>
+          <div class="bar"><i id="bar"></i></div>
+          <div class="recv-line"><span id="subLine"></span></div>
+        </div>
+
+        <div class="sheet" id="sheet">
+          <h2 id="sheetTitle"></h2>
+          <p id="sheetText"></p>
+          <div class="actions" id="sheetActions"></div>
+        </div>
+      </div>
+
+      <div class="recv-controls">
+        <label for="grid">布局</label>
+        <select id="grid"></select>
+        <button id="realignBtn" class="ghost">重新对齐</button>
+        <div class="spacer" style="flex: 1"></div>
+        <button id="startBtn" class="primary">暂停</button>
+      </div>
+    </div>
+
+    <script src="app/lib/rand.js"></script>
+    <script src="app/lib/base45.js"></script>
+    <script src="app/lib/crc16.js"></script>
+    <script src="app/lib/qrcap.js"></script>
+    <script src="app/lib/fountain.js"></script>
+    <script src="app/lib/wire.js"></script>
+    <script src="app/lib/stream.js"></script>
+    <script src="app/lib/jsQR.js"></script>
+    <script src="app/lib/scan.js"></script>
+    <script src="app/receiver.js"></script>
+    <script>
+      if ('serviceWorker' in navigator && location.protocol.indexOf('http') === 0) {
+        window.addEventListener('load', function () {
+          navigator.serviceWorker.register('sw.js').catch(function () {});
+        });
+      }
+    </script>
+  </body>
+</html>
