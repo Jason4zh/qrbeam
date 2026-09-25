@@ -243,5 +243,42 @@
     return out;
   };
 
-  return { GridScanner: GridScanner };
+  /**
+   * 取景引导框：在 W×H 的取景区域里，取一个宽高比恰为 cols:rows 的最大内接矩形。
+   *
+   * 发送端的画布就是 cols×rows 个正方形格子紧铺成的，所以它的外形比例正好是
+   * cols:rows。把同比例的框画在预览上，用户只要把电脑屏幕铺满它就行。
+   *
+   * 这个框天然随手机屏幕比例自适应：竖屏拿时它会变成中间一条横向的扁框
+   * （顺带提示用户这样是在浪费分辨率），横屏拿时它才会撑满。
+   *
+   * @param {number} W 取景区域宽（像素）
+   * @param {number} H 取景区域高（像素）
+   * @param {number} cols
+   * @param {number} rows
+   * @param {number} [margin=0.06] 四周留白（相对短边的比例）
+   * @returns {{x:number,y:number,w:number,h:number}}
+   */
+  function guideRect(W, H, cols, rows, margin) {
+    if (!(W > 0) || !(H > 0)) return { x: 0, y: 0, w: 0, h: 0 };
+    if (margin === undefined) margin = 0.06;
+    var inset = margin * Math.min(W, H) * 2;
+    // 留白绝不能吃掉整块区域：这里只保底到 1px，而不是硬撑一个最小值，
+    // 否则在窄小的取景区里框会算得比容器本身还大。
+    var availW = Math.max(1, W - inset);
+    var availH = Math.max(1, H - inset);
+    var ar = cols / rows;
+    var w, h;
+    if (availW / availH > ar) {
+      // 取景区域比网格更"宽"，以高度为准
+      h = availH;
+      w = h * ar;
+    } else {
+      w = availW;
+      h = w / ar;
+    }
+    return { x: (W - w) / 2, y: (H - h) / 2, w: w, h: h };
+  }
+
+  return { GridScanner: GridScanner, guideRect: guideRect };
 });

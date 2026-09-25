@@ -252,6 +252,8 @@ body.page-recv {
   display: flex;
   flex-direction: column;
   height: 100%;
+  /* 移动端地址栏收展时 100% 会算错，dvh 才是真正的可视高度 */
+  height: 100dvh;
   overflow: hidden;
 }
 
@@ -385,14 +387,17 @@ body.page-recv {
 .viewport {
   position: relative;
   flex: 1;
+  min-height: 0;
   background: #000;
   overflow: hidden;
-  display: flex;
-  align-items: center;
-  justify-content: center;
 }
 
+/* 取景画面铺满整个取景区，多余部分由 object-fit 留黑边。
+   用绝对定位 + 显式四边而不是 flex 居中，尺寸行为更可预测。 */
 #cam {
+  position: absolute;
+  top: 0;
+  left: 0;
   width: 100%;
   height: 100%;
   object-fit: contain;
@@ -401,7 +406,10 @@ body.page-recv {
 
 #overlay {
   position: absolute;
-  inset: 0;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
   pointer-events: none;
 }
 
@@ -440,12 +448,21 @@ body.page-recv {
 
 .recv-controls {
   display: flex;
-  gap: 8px;
   align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   flex-wrap: wrap;
   padding: 10px 14px calc(10px + env(safe-area-inset-bottom));
   background: var(--bg-soft);
   border-top: 1px solid var(--line);
+}
+/* 左侧一组（布局 + 重新对齐），右侧单独一个开始/暂停，
+   窄屏换行时也不会因为弹性占位把按钮挤成两行。 */
+.recv-controls .group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
 }
 .recv-controls label {
   font-size: 13px;
@@ -453,20 +470,29 @@ body.page-recv {
 }
 .recv-controls select {
   padding: 7px 10px;
+  min-width: 0;
 }
 
 .sheet {
   position: absolute;
-  inset: 0;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
   background: rgba(8, 10, 14, 0.94);
   display: none;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   padding: 24px;
+  padding-bottom: calc(24px + env(safe-area-inset-bottom));
   text-align: center;
   gap: 14px;
   z-index: 5;
+  /* 矮屏 / 横屏时文字可能放不下，允许滚动 */
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
 }
 .sheet.show {
   display: flex;
@@ -523,6 +549,47 @@ body.page-recv {
 }
 .rotate-hint.show {
   display: block;
+}
+
+/* 横屏手机（以及任何很矮的取景窗口）：把控件压到最紧凑，
+   否则取景区会被上下两条 UI 挤得没剩下多少。 */
+@media (max-height: 480px) {
+  .recv-controls {
+    padding: 6px 10px calc(6px + env(safe-area-inset-bottom));
+    gap: 6px;
+  }
+  .recv-controls label {
+    display: none;
+  }
+  .recv-controls select,
+  .recv-controls button {
+    padding: 5px 10px;
+    font-size: 13px;
+  }
+  .recv-hud {
+    padding: 8px 12px calc(8px + env(safe-area-inset-bottom));
+  }
+  .recv-hud .recv-line {
+    font-size: 12px;
+  }
+  .bar {
+    height: 6px;
+    margin: 6px 0 4px;
+  }
+  .rotate-hint {
+    top: 6px;
+    padding: 3px 12px;
+  }
+  .sheet {
+    padding: 14px;
+    gap: 10px;
+  }
+  .sheet h2 {
+    font-size: 17px;
+  }
+  .sheet p {
+    font-size: 13px;
+  }
 }
 
 @media (max-width: 880px) {

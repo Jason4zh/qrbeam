@@ -128,5 +128,45 @@ function makeCtx(canvas) {
     }
   };
 
+  // ---- 下面这些只是为了记录调用，不做真正的栅格化 --------------------
+  // 叠加层（#overlay）只需要"画出框"，测试要验证的正是这些框的几何。
+
+  ctx.calls = { strokeRect: [], fillRect: [], fillText: [] };
+  ctx.setLineDash = function (dash) {
+    ctx.lineDash = dash || [];
+  };
+  ctx.setTransform = function () {};
+  ctx.save = function () {};
+  ctx.restore = function () {};
+  ctx.clearRect = function () {};
+  ctx.beginPath = function () {};
+  ctx.closePath = function () {};
+  ctx.moveTo = function () {};
+  ctx.lineTo = function () {};
+  ctx.stroke = function () {};
+  ctx.arc = function () {};
+  ctx.measureText = function (text) {
+    // 够用的近似：中文按一个全角宽，其余按半角宽
+    var w = 0;
+    for (var i = 0; i < text.length; i++) {
+      w += text.charCodeAt(i) > 0x2000 ? 14 : 8;
+    }
+    return { width: w };
+  };
+
+  ctx.strokeRect = function (x, y, w, h) {
+    ctx.calls.strokeRect.push({ x: x, y: y, w: w, h: h, style: ctx.strokeStyle, dash: ctx.lineDash });
+  };
+
+  var rawFillRect = ctx.fillRect;
+  ctx.fillRect = function (x, y, w, h) {
+    ctx.calls.fillRect.push({ x: x, y: y, w: w, h: h, style: ctx.fillStyle });
+    rawFillRect(x, y, w, h);
+  };
+
+  ctx.fillText = function (text, x, y) {
+    ctx.calls.fillText.push({ text: text, x: x, y: y });
+  };
+
   return ctx;
 }

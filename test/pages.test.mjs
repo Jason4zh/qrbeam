@@ -266,6 +266,148 @@ test('receive.html：receiver.js 能找到它用到的每个元素并完成初�
 });
 
 // ---------------------------------------------------------------------
+// 手机端叠加层几何（用户看到的"校准框"）
+// ---------------------------------------------------------------------
+
+function fireChange(node) {
+  (node._listeners.change || []).forEach(function (fn) {
+    fn({ target: node, preventDefault: function () {} });
+  });
+}
+
+/**
+ * 装好 DOM 与脚本，设置取景画面尺寸、切到指定布局，返回叠加层记录下来的矩形。
+ * videoW/videoH 用来模拟手机的实际取景方向（竖屏 1080×1920 / 横屏 1920×1080）。
+ */
+function overlayHarness(opts) {
+  const undoNs = installNamespace();
+  const dom = installDom(path.join(root, 'receive.html'));
+  const vp = dom.byId.viewport;
+  const cam = dom.byId.cam;
+  vp.clientWidth = opts.viewW;
+  vp.clientHeight = opts.viewH;
+  cam.videoWidth = opts.videoW;
+  cam.videoHeight = opts.videoH;
+  loadScript('app/receiver.js');
+
+  const octx = dom.byId.overlay.getContext('2d');
+  const api = {
+    dom,
+    fire(gridId) {
+      dom.byId.grid.value = gridId;
+      fireChange(dom.byId.grid);
+      return octx.calls.strokeRect.slice();
+    },
+    rects() {
+      return octx.calls.strokeRect.slice();
+    },
+    cellsOf(rects, n) {
+      return rects.slice(0, n);
+    },
+    outerOf(rects) {
+      return rects[rects.length - 1];
+    },
+    rotateShown() {
+      return dom.byId.rotateHint.classList.contains('show');
+    },
+    undo() {
+      dom.restore();
+      undoNs();
+    },
+  };
+  return api;
+}
+
+const PHONE_PORTRAIT = { viewW: 390, viewH: 700, videoW: 1080, videoH: 1920 };
+const PHONE_LANDSCAPE = { viewW: 700, viewH: 360, videoW: 1920, videoH: 1080 };
+
+test('手机竖屏：3×2 的引导框比例正确、每格正方形、且不越界', () => {
+  const h = overlayHarness(PHONE_PORTRAIT);
+  try {
+    const rects = h.fire('3x2');
+    assert.ok(rects.length >= 7, `应画出 6 格 + 1 个外框，实际 ${rects.length}`);
+    for (const c of h.cellsOf(rects, 6)) {
+      assert.ok(Math.abs(c.w - c.h) < 0.5, `格子应为正方形，实际 ${c.w.toFixed(1)}×${c.h.toFixed(1)}`);
+    }
+    const outer = h.outerOf(rects);
+    assert.ok(
+      Math.abs(outer.w / outer.h - 1.5) < 0.02,
+      `框比例应为 3:2，实际 ${(outer.w / outer.h).toFixed(3)}`
+    );
+    assert.ok(outer.x >= -1 && outer.y >= -1, '不应出现负偏移');
+    assert.ok(outer.x + outer.w <= PHONE_PORTRAIT.viewW + 1, '不应超出取景区右边界');
+    assert.ok(outer.y + outer.h <= PHONE_PORTRAIT.viewH + 1, '不应超出取景区下边界');
+    // 关键回归点：竖屏拿横向布局时，框只占中间一条，而不是撑满整个屏幕
+    assert.ok(outer.h < outer.w, '竖屏下横向布局的框应更宽而不是更高');
+    assert.ok(outer.h < PHONE_PORTRAIT.viewH * 0.45, '框高不应接近整屏高度');
+  } finally {
+    h.undo();
+  }
+});
+
+test('手机横屏：同一布局的引导框明显更大，且不再提示旋转', () => {
+  const portrait = overlayHarness(PHONE_PORTRAIT);
+  const po = portrait.outerOf(portrait.fire('3x2'));
+  const portraitArea = po.w * po.h;
+  const portraitRotate = portrait.rotateShown();
+  portrait.undo();
+
+  const land = overlayHarness(PHONE_LANDSCAPE);
+  const lo = land.outerOf(land.fire('3x2'));
+  const landArea = lo.w * lo.h;
+  const landRotate = land.rotateShown();
+  land.undo();
+
+  assert.ok(
+    landArea > portraitArea * 1.5,
+    `横屏可用面积应明显更大：${landArea.toFixed(0)} vs ${portraitArea.toFixed(0)}`
+  );
+  assert.equal(portraitRotate, true, '竖屏 + 横向布局应提示横过来');
+  assert.equal(landRotate, false, '横屏不该再提示横过来');
+});
+
+test('正方形布局在竖屏下也不提示旋转', () => {
+  const h = overlayHarness(PHONE_PORTRAIT);
+  try {
+    const outer = h.outerOf(h.fire('2x2'));
+    assert.ok(Math.abs(outer.w - outer.h) < 1, `2×2 的框应为正方形，实际 ${outer.w.toFixed(1)}×${outer.h.toFixed(1)}`);
+    assert.ok(outer.x + outer.w <= PHONE_PORTRAIT.viewW + 1);
+    assert.ok(outer.y + outer.h <= PHONE_PORTRAIT.viewH + 1);
+    assert.equal(h.rotateShown(), false);
+  } finally {
+    h.undo();
+  }
+});
+
+test('切换布局后引导框立刻按新布局重算', () => {
+  const h = overlayHarness(PHONE_LANDSCAPE);
+  try {
+    const a = h.outerOf(h.fire('3x2'));
+    assert.ok(Math.abs(a.w / a.h - 1.5) < 0.02, '3×2 应为 3:2');
+    const b = h.outerOf(h.fire('4x2'));
+    assert.ok(Math.abs(b.w / b.h - 2) < 0.02, `4×2 应为 2:1，实际 ${(b.w / b.h).toFixed(3)}`);
+    const c = h.outerOf(h.fire('1x2'));
+    assert.ok(Math.abs(c.w / c.h - 0.5) < 0.02, `1×2 应为 1:2，实际 ${(c.w / c.h).toFixed(3)}`);
+    assert.ok(c.x >= -1 && c.y >= -1 && c.x + c.w <= PHONE_LANDSCAPE.viewW + 1);
+  } finally {
+    h.undo();
+  }
+});
+
+test('取景区很矮时（横屏手机）框不会溢出', () => {
+  const h = overlayHarness({ viewW: 740, viewH: 300, videoW: 1920, videoH: 1080 });
+  try {
+    const outer = h.outerOf(h.fire('4x2'));
+    assert.ok(outer.w > 0 && outer.h > 0, '框不应塌陷');
+    assert.ok(outer.y >= -1, '不应出现负偏移');
+    assert.ok(outer.y + outer.h <= 301, `框底 ${(outer.y + outer.h).toFixed(1)} 不应越过取景区`);
+    assert.ok(outer.x + outer.w <= 741);
+  } finally {
+    h.undo();
+  }
+});
+
+// ---------------------------------------------------------------------
 // 交叉核对
 // ---------------------------------------------------------------------
 
@@ -324,7 +466,8 @@ test('Worker 的 importScripts 路径都存在', () => {
   }
 });
 
-test('sw.js 预缓存的资源全部存在于仓库里', () => {  const sw = fs.readFileSync(path.join(root, 'sw.js'), 'utf8');
+test('sw.js 预缓存的资源全部存在于仓库里', () => {
+  const sw = fs.readFileSync(path.join(root, 'sw.js'), 'utf8');
   const rels = [...sw.matchAll(/'(\.\/[^']+)'/g)].map((m) => m[1]);
   assert.ok(rels.length > 15, `应列出全部资源，实际 ${rels.length} 条`);
   for (const rel of rels) {

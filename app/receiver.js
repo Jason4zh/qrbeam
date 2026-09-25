@@ -46,6 +46,7 @@
     grabCtx: null,
     localScanner: null,
     mainSampler: null,
+    viewportObserver: null,
     slotHit: [],
     hits: [],
     rafId: 0,
@@ -102,33 +103,94 @@
   }
 
   /**
-   * 发送端把码排成 cols×rows 铺在电脑屏幕上。手机竖着拿的时候，同一片网格在
-   * 取景画面里会呈现为转置后的形状，所以这里按取景画面的长宽比自动转置，
-   * 用户在两端选同一个布局名即可。
+   * 取景画面在预览区里的实际显示矩形（对齐 #cam 的 object-fit: contain）。
+   * @returns {{W:number,H:number,vw:number,vh:number,dw:number,dh:number,dx:number,dy:number}|null}
+   */
+  function displayBox() {
+    var W = el.viewport.clientWidth;
+    var H = el.viewport.clientHeight;
+    var vw = el.cam.videoWidth;
+    var vh = el.cam.videoHeight;
+    if (!W || !H || !vw || !vh) return null;
+    var ar = vw / vh;
+    var dw, dh, dx, dy;
+    if (ar > W / H) {
+      dw = W;
+      dh = W / ar;
+      dx = 0;
+      dy = (H - dh) / 2;
+    } else {
+      dh = H;
+      dw = H * ar;
+      dy = 0;
+      dx = (W - dw) / 2;
+    }
+    return { W: W, H: H, vw: vw, vh: vh, dw: dw, dh: dh, dx: dx, dy: dy };
+  }
+
+  /**
+   * 引导框（预览坐标，相对显示矩形左上角）。
+   */
+  function guideBox(d) {
+    return QB.guideRect(d.dw, d.dh, state.detail.cols, state.detail.rows);
+  }
+
+  /**
+   * 未对齐时，用引导框对应的画面区域作为搜索区；已对齐则用锁定的网格区域。
+   * 这样首帧就只需要在用户真正摆放屏幕的那块区域里找，而不必整帧盲扫。
+   */
+  function searchArea() {
+    if (state.roi) return state.roi;
+    var d = displayBox();
+    if (!d) return null;
+    var g = QB.guideRect(d.dw, d.dh, state.detail.cols, state.detail.rows);
+    return {
+      x: (g.x / d.dw) * d.vw,
+      y: (g.y / d.dh) * d.vh,
+      w: (g.w / d.dw) * d.vw,
+      h: (g.h / d.dh) * d.vh,
+    };
+  }
+
+  /**
+   * 布局直接照搬发送端的 cols×rows，不做任何转置。
+   *
+   * 曾经按"手机横竖"把网格转置过一次，那是错的：无论怎么持握手机，取景预览
+   * 里的画面方向都和人眼看到的一致，电脑屏幕的横向始终对应画面的横向。
+   * 转置之后 3×2 会被当成 2×3，每个分区都套不住一个完整的码，画出来的框
+   * 也就比实际的码大出一大截。
    */
   function applyGrid() {
     var g = selectedGrid();
-    var vw = el.cam.videoWidth || 4;
-    var vh = el.cam.videoHeight || 3;
-    var landscape = vw >= vh;
-    var cols = g.cols;
-    var rows = g.rows;
-
-    if (cols !== rows) {
-      if (!landscape && cols > rows) { var t = cols; cols = rows; rows = t; }
-      else if (landscape && rows > cols) { var t2 = cols; cols = rows; rows = t2; }
+    if (g.cols === state.detail.cols && g.rows === state.detail.rows && state.localScanner) {
+      updateRotateHint();
+      return;
     }
-
-    if (cols === state.detail.cols && rows === state.detail.rows && state.localScanner) return;
-    state.detail = { cols: cols, rows: rows };
+    state.detail = { cols: g.cols, rows: g.rows };
     state.roi = null;
     state.missStreak = 0;
-    state.slotHit = new Array(cols * rows).fill(false);
-    state.localScanner = new QB.GridScanner(cols, rows);
+    state.slotHit = new Array(g.cols * g.rows).fill(false);
+    state.localScanner = new QB.GridScanner(g.cols, g.rows);
     if (state.worker) {
-      state.worker.postMessage({ type: 'config', cols: cols, rows: rows, options: {} });
+      state.worker.postMessage({ type: 'config', cols: g.cols, rows: g.rows, options: {} });
     }
-    el.rotateHint.classList.toggle('show', !landscape);
+    updateRotateHint();
+    drawOverlay();
+  }
+
+  /**
+   * 引导框占取景区域的比例太小，说明当前持握方向在浪费分辨率 —— 横过来更划算。
+   * 阈值 0.42 大致对应"竖屏 + 横向网格"这一种情况。
+   */
+  function updateRotateHint() {
+    var d = displayBox();
+    if (!d || !state.detail.cols) {
+      el.rotateHint.classList.remove('show');
+      return;
+    }
+    var g = guideBox(d);
+    var used = (g.w * g.h) / Math.max(1, d.dw * d.dh);
+    el.rotateHint.classList.toggle('show', used < 0.42);
   }
 
   // ------------------------------------------------------------------
@@ -180,7 +242,7 @@
       }
       state.busy = true;
       state.worker.postMessage(
-        { type: 'frame', bitmap: bitmap, width: vw, height: vh, roi: state.roi, seq: ++state.seq },
+        { type: 'frame', bitmap: bitmap, width: vw, height: vh, roi: searchArea(), seq: ++state.seq },
         [bitmap]
       );
       return;
@@ -191,7 +253,7 @@
     var sampler = mainThreadSampler(v);
     var res = null;
     try {
-      res = state.localScanner.align(vw, vh, sampler, state.roi);
+      res = state.localScanner.align(vw, vh, sampler, searchArea());
     } catch (err) {
       state.error = String(err && err.message ? err.message : err);
     }
@@ -310,11 +372,17 @@
       (name ? '　' + name : '');
   }
 
+  /**
+   * 叠加层：未锁定时画"把屏幕铺满这里"的取景引导框，锁定后画真实的网格。
+   *
+   * 所有几何都以取景画面在预览区里的实际显示矩形为基准，因此框的位置和大小
+   * 会随手机屏幕比例、横竖屏、地址栏收展自动跟着变。
+   */
   function drawOverlay() {
-    var now = Date.now();
     var dpr = window.devicePixelRatio || 1;
     var W = el.viewport.clientWidth;
     var H = el.viewport.clientHeight;
+    if (!W || !H) return;
     if (el.overlay.width !== Math.round(W * dpr) || el.overlay.height !== Math.round(H * dpr)) {
       el.overlay.width = Math.round(W * dpr);
       el.overlay.height = Math.round(H * dpr);
@@ -322,61 +390,101 @@
     octx.setTransform(dpr, 0, 0, dpr, 0, 0);
     octx.clearRect(0, 0, W, H);
 
-    var v = el.cam;
-    var vw = v.videoWidth;
-    var vh = v.videoHeight;
-    if (!vw || !vh) return;
-
-    // object-fit: contain 的显示区域
-    var ar = vw / vh;
-    var dw, dh, dx, dy;
-    if (ar > W / H) {
-      dw = W;
-      dh = W / ar;
-      dx = 0;
-      dy = (H - dh) / 2;
-    } else {
-      dh = H;
-      dw = H * ar;
-      dy = 0;
-      dx = (W - dw) / 2;
-    }
-
+    var d = displayBox();
     var cols = state.detail.cols;
     var rows = state.detail.rows;
-    var roi = state.roi || { x: 0, y: 0, w: vw, h: vh };
-    var cw = roi.w / cols;
-    var ch = roi.h / rows;
+    if (!d || !cols || !rows) return;
 
-    octx.lineWidth = 2;
-    octx.font = '600 12px ui-monospace, monospace';
-    for (var r = 0; r < rows; r++) {
-      for (var c = 0; c < cols; c++) {
-        var slot = r * cols + c;
-        var x = dx + ((roi.x + c * cw) / vw) * dw;
-        var y = dy + ((roi.y + r * ch) / vh) * dh;
-        var w = (cw / vw) * dw;
-        var h = (ch / vh) * dh;
-        var on = state.slotHit[slot];
-        octx.strokeStyle = on ? 'rgba(61,220,132,0.95)' : 'rgba(255,255,255,0.35)';
-        octx.strokeRect(x + 1, y + 1, w - 2, h - 2);
-        if (on) {
-          octx.fillStyle = 'rgba(61,220,132,0.95)';
-          octx.fillText('✓', x + 6, y + 16);
+    var locked = !!state.roi;
+    var cells = [];
+    var outer;
+    var r;
+    var c;
+
+    if (locked) {
+      // 帧坐标 -> 预览坐标
+      var ox = d.dx + (state.roi.x / d.vw) * d.dw;
+      var oy = d.dy + (state.roi.y / d.vh) * d.dh;
+      var sw = (state.roi.w / cols / d.vw) * d.dw;
+      var sh = (state.roi.h / rows / d.vh) * d.dh;
+      outer = { x: ox, y: oy, w: sw * cols, h: sh * rows };
+      for (r = 0; r < rows; r++) {
+        for (c = 0; c < cols; c++) {
+          cells.push({ x: ox + c * sw, y: oy + r * sh, w: sw, h: sh });
+        }
+      }
+    } else {
+      var g = QB.guideRect(d.dw, d.dh, cols, rows);
+      var gw = g.w / cols;
+      var gh = g.h / rows;
+      outer = { x: d.dx + g.x, y: d.dy + g.y, w: g.w, h: g.h };
+      for (r = 0; r < rows; r++) {
+        for (c = 0; c < cols; c++) {
+          cells.push({ x: outer.x + c * gw, y: outer.y + r * gh, w: gw, h: gh });
         }
       }
     }
 
-    // 对齐成功时把整片网格的边界描出来，让用户知道系统锁定了什么
-    if (state.roi) {
-      octx.strokeStyle = 'rgba(76,141,255,0.9)';
-      octx.lineWidth = 2;
-      octx.strokeRect(
-        dx + (state.roi.x / vw) * dw,
-        dy + (state.roi.y / vh) * dh,
-        (state.roi.w / vw) * dw,
-        (state.roi.h / vh) * dh
-      );
+    var i;
+    var cell;
+    for (i = 0; i < cells.length; i++) {
+      cell = cells[i];
+      if (state.slotHit[i]) {
+        octx.setLineDash([]);
+        octx.fillStyle = 'rgba(61,220,132,0.16)';
+        octx.fillRect(cell.x + 1, cell.y + 1, cell.w - 2, cell.h - 2);
+        octx.strokeStyle = 'rgba(61,220,132,0.95)';
+        octx.lineWidth = 2.5;
+        octx.strokeRect(cell.x + 1.25, cell.y + 1.25, cell.w - 2.5, cell.h - 2.5);
+      } else {
+        octx.setLineDash(locked ? [] : [5, 5]);
+        octx.strokeStyle = locked ? 'rgba(255,255,255,0.45)' : 'rgba(255,255,255,0.3)';
+        octx.lineWidth = 1.5;
+        octx.strokeRect(cell.x + 0.75, cell.y + 0.75, cell.w - 1.5, cell.h - 1.5);
+      }
+    }
+    octx.setLineDash([]);
+
+    // 外框 + 四角角标：锁定后是实线，未锁定时是虚线取景框
+    octx.lineWidth = 2.5;
+    octx.strokeStyle = locked ? 'rgba(76,141,255,0.95)' : 'rgba(76,141,255,0.85)';
+    if (!locked) octx.setLineDash([9, 7]);
+    octx.strokeRect(outer.x + 1, outer.y + 1, outer.w - 2, outer.h - 2);
+    octx.setLineDash([]);
+
+    var arm = Math.max(14, Math.min(26, Math.min(outer.w, outer.h) * 0.12));
+    octx.lineWidth = 4;
+    octx.strokeStyle = locked ? 'rgba(76,141,255,0.95)' : 'rgba(122,169,255,0.95)';
+    var corners = [
+      [outer.x, outer.y, 1, 1],
+      [outer.x + outer.w, outer.y, -1, 1],
+      [outer.x, outer.y + outer.h, 1, -1],
+      [outer.x + outer.w, outer.y + outer.h, -1, -1],
+    ];
+    for (i = 0; i < corners.length; i++) {
+      var cx = corners[i][0];
+      var cy = corners[i][1];
+      var sx = corners[i][2];
+      var sy = corners[i][3];
+      octx.beginPath();
+      octx.moveTo(cx + sx * arm, cy);
+      octx.lineTo(cx, cy);
+      octx.lineTo(cx, cy + sy * arm);
+      octx.stroke();
+    }
+
+    // 提示文字：未锁定时告诉用户要做什么
+    if (!locked) {
+      var label = '把电脑屏幕放进这个框';
+      octx.font = '600 14px -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif';
+      var tw = octx.measureText(label).width;
+      var tx = Math.min(Math.max(8, outer.x + (outer.w - tw - 20) / 2), Math.max(8, W - tw - 26));
+      var ty = outer.y - 12;
+      if (ty < 26) ty = Math.min(H - 12, outer.y + outer.h + 26);
+      octx.fillStyle = 'rgba(10,14,20,0.78)';
+      octx.fillRect(tx - 10, ty - 17, tw + 20, 25);
+      octx.fillStyle = 'rgba(122,169,255,0.98)';
+      octx.fillText(label, tx, ty);
     }
   }
 
@@ -527,10 +635,7 @@
         applyGrid();
         updateHud(Date.now());
         startScanning();
-        window.addEventListener('resize', drawOverlay);
-        window.addEventListener('orientationchange', function () {
-          setTimeout(function () { applyGrid(); drawOverlay(); }, 350);
-        });
+        watchViewport();
       })
       .catch(function (err) {
         showSheet('摄像头启动失败', String(err && err.message ? err.message : err), [
@@ -539,8 +644,32 @@
       });
   }
 
-  function initWorker() {
-    if (typeof Worker === 'undefined' || typeof OffscreenCanvas === 'undefined') {
+  /**
+   * 监听取景区的尺寸变化：地址栏收展、横竖屏切换、分屏都会改变它，
+   * 引导框和网格必须跟着重算，否则框就会和画面错位。
+   */
+  function watchViewport() {
+    if (typeof ResizeObserver !== 'undefined') {
+      if (state.viewportObserver) state.viewportObserver.disconnect();
+      state.viewportObserver = new ResizeObserver(function () {
+        updateRotateHint();
+        drawOverlay();
+      });
+      state.viewportObserver.observe(el.viewport);
+    } else {
+      window.addEventListener('resize', drawOverlay);
+    }
+    window.addEventListener('orientationchange', function () {
+      // 方向切换后视口尺寸要晚一点才稳定下来
+      setTimeout(function () {
+        applyGrid();
+        updateRotateHint();
+        drawOverlay();
+      }, 350);
+    });
+  }
+
+  function initWorker() {    if (typeof Worker === 'undefined' || typeof OffscreenCanvas === 'undefined') {
       state.useWorker = false;
       return;
     }
@@ -606,7 +735,7 @@
 
   showSheet(
     '准备接收',
-    '把电脑屏幕上的一整片二维码放进取景框里，尽量横着拿手机、让画面对正屏幕。系统会自动锁定网格位置，两侧的布局选项保持一致即可。',
+    '开始后会显示一个与电脑端「布局」同比例的取景框 —— 把电脑屏幕上的二维码铺满它就行，位置和距离不太准也没关系，系统会自动锁定网格。两端的布局选同一个即可。',
     [{ label: '开始扫描', primary: true, onClick: startCamera }],
     false
   );

@@ -17,6 +17,7 @@ const R = require(path.join(lib, 'rand.js'));
 const F = require(path.join(lib, 'fountain.js'));
 const W = require(path.join(lib, 'wire.js'));
 const S = require(path.join(lib, 'stream.js'));
+const SC = require(path.join(lib, 'scan.js'));
 
 function randBytes(n, seed) {
   const rng = R.splitmix32(seed);
@@ -332,4 +333,58 @@ test('接收端能从任意一条记录开始（无需 META 先行）', () => {
   assert.equal(r.L, L, '净荷长度应自描述地确定下来');
   assert.equal(r.fileId, 42);
   assert.equal(r.meta, null, '此时还没有 META');
+});
+
+// ---------------------------------------------------------------------
+// 取景引导框（手机端校准框的几何）
+// ---------------------------------------------------------------------
+
+test('引导框保持布局比例并居中', () => {
+  const layouts = [[1, 1], [2, 1], [1, 2], [2, 2], [3, 1], [3, 2], [2, 3], [4, 2]];
+  for (const [cols, rows] of layouts) {
+    for (const [W, H] of [[390, 844], [844, 390], [1920, 1080], [360, 640]]) {
+      const g = SC.guideRect(W, H, cols, rows);
+      const tag = `${cols}x${rows} @${W}x${H}`;
+      assert.ok(Math.abs(g.w / g.h - cols / rows) < 1e-9, `${tag} 比例应为 ${cols}:${rows}`);
+      assert.ok(g.w > 0 && g.h > 0, `${tag} 不应塌成零`);
+      assert.ok(g.w <= W && g.h <= H, `${tag} 不应超出一边`);
+      assert.ok(Math.abs(g.x + g.w / 2 - W / 2) < 1e-9, `${tag} 水平居中`);
+      assert.ok(Math.abs(g.y + g.h / 2 - H / 2) < 1e-9, `${tag} 垂直居中`);
+      assert.ok(g.x >= 0 && g.y >= 0, `${tag} 不应有负偏移`);
+    }
+  }
+});
+
+test('引导框随手机屏幕比例自适应（这是"校准框过大"的根治点）', () => {
+  // 同一套 3×2 布局：竖屏拿时只能占中间一条，横屏拿时才能撑满
+  const portrait = SC.guideRect(390, 760, 3, 2);
+  const landscape = SC.guideRect(760, 390, 3, 2);
+  assert.ok(Math.abs(portrait.w / portrait.h - 1.5) < 1e-9);
+  assert.ok(Math.abs(landscape.w / landscape.h - 1.5) < 1e-9);
+  // 竖屏时框的可用面积比例明显更小 —— 正是提示用户横屏的依据
+  const portraitUse = (portrait.w * portrait.h) / (390 * 760);
+  const landscapeUse = (landscape.w * landscape.h) / (760 * 390);
+  assert.ok(portraitUse < 0.35, `竖屏利用率应偏低，实际 ${portraitUse.toFixed(3)}`);
+  assert.ok(landscapeUse > 0.42, `横屏利用率应偏高，实际 ${landscapeUse.toFixed(3)}`);
+  assert.ok(portrait.w < landscape.w, '竖屏里横向布局的框更窄');
+});
+
+test('引导框在极端尺寸下也不会塌陷或越界', () => {
+  for (const [W, H] of [[40, 40], [30, 400], [400, 30], [12, 12]]) {
+    const g = SC.guideRect(W, H, 4, 2);
+    assert.ok(g.w > 0 && g.h > 0, `${W}x${H} 不应为零`);
+    assert.ok(g.w <= W + 1e-9 && g.h <= H + 1e-9, `${W}x${H} 不应越界`);
+  }
+  const zero = SC.guideRect(0, 0, 2, 2);
+  assert.deepEqual(zero, { x: 0, y: 0, w: 0, h: 0 });
+});
+
+test('引导框覆盖整片网格：每格都是正方形', () => {
+  // 发送端每个格子是正方形，所以引导框按 cols:rows 切分后长宽必须相等
+  for (const [cols, rows] of [[2, 2], [3, 2], [4, 2], [2, 3], [1, 3]]) {
+    const g = SC.guideRect(1000, 700, cols, rows);
+    const cw = g.w / cols;
+    const ch = g.h / rows;
+    assert.ok(Math.abs(cw - ch) < 1e-9, `${cols}x${rows}: 格子 ${cw}x${ch} 应为正方形`);
+  }
 });
